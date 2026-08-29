@@ -32,6 +32,32 @@ export const MAP_STACKS = [
     kind: 'osm',
     requiresIon: false,
   },
+  // Keyless raster stacks. Added ALONGSIDE the metered/ion stacks rather than
+  // replacing them (the `gods-eye-view-free` fork deletes `photoreal` and the
+  // Bing entries outright, which turns a switch into a one-way door). Every
+  // stack below is a plain `{z}/{x}/{y}` raster endpoint with no key, so they
+  // stay selectable in every regime and give the keyless default somewhere to
+  // go besides flat OSM.
+  {
+    id: 'opentopo',
+    label: 'OpenTopoMap',
+    shortLabel: 'Topo',
+    kind: 'url',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c'],
+    credit: '\u00a9 OpenTopoMap contributors (CC-BY-SA)',
+    requiresIon: false,
+  },
+  {
+    id: 'osm-humanitarian',
+    label: 'OSM Humanitarian',
+    shortLabel: 'HOT',
+    kind: 'url',
+    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b'],
+    credit: '\u00a9 OpenStreetMap contributors, tiles by HOT',
+    requiresIon: false,
+  },
 ];
 
 const DEFAULT_OSM_CREDIT = '© OpenStreetMap contributors';
@@ -260,6 +286,15 @@ export class MapStackController {
       provider = new Cesium.OpenStreetMapImageryProvider({
         url: 'https://tile.openstreetmap.org/',
         credit: DEFAULT_OSM_CREDIT,
+      });
+    } else if (stack.kind === 'url') {
+      // Generic keyless raster stack. `subdomains` is per-stack because the
+      // tile hosts differ (OpenTopoMap serves a/b/c, the HOT style a/b), and
+      // requesting a subdomain a host does not publish yields dead tiles.
+      provider = new Cesium.UrlTemplateImageryProvider({
+        url: stack.url,
+        subdomains: stack.subdomains || ['a', 'b', 'c'],
+        credit: stack.credit || DEFAULT_OSM_CREDIT,
       });
     } else {
       throw new Error(`Unsupported map stack: ${stack.id}`);
