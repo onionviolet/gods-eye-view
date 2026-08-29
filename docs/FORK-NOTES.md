@@ -39,6 +39,7 @@ Upstream pull requests, none of them merged upstream at the time of writing:
 | [#83](https://github.com/bilawalsidhu/gods-eye-view/pull/83) | Keeps `node:fs` out of the browser-built data modules |
 | [#82](https://github.com/bilawalsidhu/gods-eye-view/pull/82) | Caps the buffered snapshot body in the CCTV frame proxy |
 | [#97](https://github.com/bilawalsidhu/gods-eye-view/pull/97) | Hardens the Vite host allowlist |
+| [#89](https://github.com/bilawalsidhu/gods-eye-view/pull/89) | RainViewer weather radar, re-landed with the PoC's four blocking bugs fixed |
 
 ## Merge decisions worth knowing
 
@@ -91,19 +92,38 @@ omission, which is what its comment promises it will do.
 Mirrors upstream [#80](https://github.com/bilawalsidhu/gods-eye-view/pull/80) so
 the dev server starts from an agent harness without retyping host and port.
 
-## Tried and backed out
+## Tried, reverted, fixed, re-landed
 
 [PR #89](https://github.com/bilawalsidhu/gods-eye-view/pull/89), the RainViewer
-weather radar, is labelled a PoC for issue #85 and is one. It registers a layer
-without extending the sealed `LAYER_STATE_REGISTRY` contract, so three tests
-fail on merge: production registry exactness, and both unknown-layer-token
-rejection tests. Reverted rather than patched, because completing the registry
-contract for someone else's proof of concept is design work rather than a
-fixup. The revert is kept in history instead of reset away, so the attempt is
-visible. Re-land when upstream finishes it.
+weather radar, arrived as a PoC. Merging it here failed three tests, so it was
+reverted (`f7b6412`) with the failures named in the commit message. Upstream
+picked that revert up and reviewed the PR, and the layer is now re-landed with
+all four blocking points fixed.
 
-Four small fixes conflict against this branch and were left alone rather than
-force-resolved: [#53](https://github.com/bilawalsidhu/gods-eye-view/pull/53),
+Two of the four are worth remembering:
+
+**The tile URL could never have worked.** `weather-maps.json` returns an opaque
+hash in `frame.path` (`/v2/radar/3ae628836a15`), not a timestamp-composed path.
+The PoC rebuilt the path from `frame.time`, which 404s on every tile. Cesium
+renders an empty imagery layer rather than raising, so the layer looked enabled
+and drew nothing. The failure mode is silence, which is why a test suite that
+passes proves nothing here; `latestRadarTileUrl` is now pure and unit-tested,
+including an assertion that the timestamp never appears in the URL.
+
+**A test fixture stopped testing what it names.** `layerState.test.mjs` used the
+literal `'z'` as its *unknown layer token*, and this PR registers `'z'` as a
+real layer. The assertion kept passing for the wrong reason until the registry
+count changed. Both fixtures now **derive** the first unregistered letter from
+`LAYER_STATE_REGISTRY`, which retires the bug class rather than moving it one
+letter along. A second instance lives in `sharelink.celestial.test.mjs`, which
+the upstream diagnosis missed.
+
+The generalisable rule: **a fixture that hardcodes "a value the system does not
+know about" is a time bomb**, because the system's vocabulary grows. Derive it
+from the registry it must not collide with.
+
+Four small fixes still conflict against this branch and were left alone rather
+than force-resolved: [#53](https://github.com/bilawalsidhu/gods-eye-view/pull/53),
 [#46](https://github.com/bilawalsidhu/gods-eye-view/pull/46),
 [#45](https://github.com/bilawalsidhu/gods-eye-view/pull/45),
 [#50](https://github.com/bilawalsidhu/gods-eye-view/pull/50).
@@ -117,12 +137,11 @@ force-resolved: [#53](https://github.com/bilawalsidhu/gods-eye-view/pull/53),
    OpenAI-compatible on loopback) but by replacing the OpenAI path, not by
    switching. The real work is porting those services behind #51's provider
    registry in `src/agent/providers.js`.
-2. **PR #89**, once the layer registry contract is done.
-3. **Keyless data layers**, all unmerged upstream:
+2. **Keyless data layers**, all unmerged upstream:
    [#15](https://github.com/bilawalsidhu/gods-eye-view/pull/15) Meshtastic,
    [#14](https://github.com/bilawalsidhu/gods-eye-view/pull/14) ALPR / Flock,
    [#13](https://github.com/bilawalsidhu/gods-eye-view/pull/13) NIFC wildfire.
-4. **Four commits from the `kaizen` remote**, independent of its Mobius work:
+3. **Four commits from the `kaizen` remote**, independent of its Mobius work:
    renderer capability negotiation, the mobile renderer fallback, the canonical
    global camera home, and gating ion/Google resource hints on actual
    credential availability.
@@ -136,8 +155,9 @@ gh api repos/bilawalsidhu/gods-eye-view/compare/main...OWNER:REPO:main
 
 ## Verifying a change
 
-`npm test` is the gate. The suite stands at **2,813 passing, 0 failing** on
-`dev`, against 2,587 on upstream `main`; PR #51 brings 218 of the difference.
+`npm test` is the gate. The suite stands at **2,819 passing, 0 failing** on
+`dev`, against 2,587 on upstream `main`; PR #51 brings 218 of the difference and the
+weather-radar work adds six.
 
 Two allocation microbenchmarks skip on Node 26 because their budgets are
 calibrated for Node 24. That is expected, not a failure.
