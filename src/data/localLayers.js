@@ -1,4 +1,3 @@
-import { createWeatherRadarLayer } from './weatherRadar.js';
 import { createLocalGeoJsonLayer } from './localGeojson.js';
 import { createFirmsHeatmapLayer } from './firmsHeatmap.js';
 import submarineCablesLayer from './telegeographySubmarineCables.js';
@@ -45,12 +44,9 @@ const fires = createFirmsHeatmapLayer({
   source: 'NASA FIRMS · LIVE',
 });
 
-const weatherRadar = createWeatherRadarLayer();
-
 export default [
   datacenters,
   dams,
   submarineCablesLayer,
   fires,
-  weatherRadar,
 ];
