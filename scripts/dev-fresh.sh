@@ -74,9 +74,17 @@ else
   GOOGLE_MAPS_API_KEY=""
 fi
 if [[ -z "${GOOGLE_MAPS_API_KEY}" ]]; then
-  echo "error: Google Maps API key missing."
-  echo "set GOOGLE_MAPS_API_KEY in env, or add Keychain item: service=google-maps-api account=api-key"
-  exit 1
+  # NOT fatal any more. This launcher predates the merged PR #60 and PR #51:
+  # the app now runs in three regimes (Google key, ion token, or neither), so
+  # exiting here refused to start a configuration the code supports and, worse,
+  # bailed BEFORE CESIUM_ION_TOKEN is resolved further down. An operator with a
+  # valid ion token was told their Google key was missing and never learned the
+  # ion token had been read fine.
+  #
+  # The regime is reported in the summary block below, once every credential
+  # has actually been resolved.
+  echo "note: no Google Maps API key. Falling back to Cesium ion or keyless globe imagery."
+  echo "      (set GOOGLE_MAPS_API_KEY, or Keychain service=google-maps-api account=api-key, to use the Google route)"
 fi
 
 read_keychain_secret() {
