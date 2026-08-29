@@ -19,6 +19,16 @@ import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
 import { SceneDirector } from './scenes/director.js';
 import { initGevVoiceCommands } from './voice/gevRealtime.js';
+import { createGevActionRunner } from './voice/gevActions.js';
+import { mountAgentPanel } from './agent/agentPanel.js';
+import {
+  canLoadPhotorealistic,
+  describeTilesetRoute,
+  ionRetryRoute,
+  missingCredentialsError,
+  resolveTilesetRoute,
+  shouldRetryViaIon,
+} from './mapCredentials.js';
 import { MapStackController } from './mapStackController.js';
 import { initAnnotations } from './annotations/index.js';
 import { initLogoGaze } from './logoGaze.js';
@@ -79,17 +89,30 @@ async function init() {
       Cesium.Ion.defaultAccessToken = cesiumToken;
     }
 
-    // Set Google Maps API key for 3D Tiles. Optional: without it the app runs
-    // on the ion/OSM globe stacks instead of photorealistic 3D — every data
-    // layer is unaffected, and geocoding falls back to Nominatim.
-    const googleApiKey = import.meta.env.GOOGLE_MAPS_API_KEY;
-    if (googleApiKey) {
-      Cesium.GoogleMaps.defaultApiKey = googleApiKey;
+    // Photorealistic 3D Tiles: direct with a Google key, otherwise through
+    // Cesium ion, which resells the same mesh. Either credential is enough.
+    //
+    // MERGE NOTE (ours): PR #51 throws missingCredentialsError() when neither
+    // credential is present. We do not. PR #60's whole point is that ten of the
+    // thirteen layers need no credential at all, so "no keys" must boot to the
+    // keyless globe rather than crash. The ion route below is PR #51's and is
+    // kept intact; only the no-credential case is downgraded from fatal to a
+    // warning.
+    const mapRoute = resolveTilesetRoute({
+      googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,
+      cesiumToken,
+    });
+    console.info('[Init]', describeTilesetRoute(mapRoute));
 
-      // Expose API key globally for geocoding in locations.js
-      window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
-    } else {
-      console.warn('[Init] GOOGLE_MAPS_API_KEY not set — photorealistic 3D disabled, using globe imagery.');
+    // Assigning this AT ALL — even an empty string — sends tile requests to
+    // Google directly. It must stay undefined for Cesium's ion fallback to
+    // engage, so the ion route deliberately leaves it and the geocoding global
+    // unset; both geocoders already treat a missing key as unavailable and
+    // fall back to Nominatim (PR #60), which also gives the ion-only route the
+    // place-name search PR #51 lists as unavailable.
+    if (mapRoute.googleApiKey) {
+      Cesium.GoogleMaps.defaultApiKey = mapRoute.googleApiKey;
+      window.__GOOGLE_MAPS_API_KEY__ = mapRoute.googleApiKey;
     }
 
     // Create the Cesium viewer with minimal chrome
@@ -157,30 +180,59 @@ async function init() {
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
 
     let tileset = null;
-    if (!googleApiKey) {
-      // No Google key: skip the photoreal tileset entirely and keep the Cesium
-      // globe visible. MapStackController already treats a null tileset as the
-      // ion/OSM regime, so nothing downstream needs to know.
-      loaderStatus.textContent = 'No Google key — using globe imagery...';
+    // MERGE NOTE (ours): PR #51's ion route kept whole, wrapped in PR #60's
+    // "no credential at all" guard. Three regimes now, not two:
+    //   Google key   -> photoreal direct, ion retry if Map Tiles is blocked
+    //   ion token    -> photoreal through ion, which resells the same mesh
+    //   neither      -> keyless globe stacks, no crash and no tileset fetch
+    if (!canLoadPhotorealistic(mapRoute)) {
+      loaderStatus.textContent = 'No map credentials — using keyless globe imagery...';
       viewer.scene.globe.show = true;
     } else {
-      loaderStatus.textContent = 'Loading Google 3D Tiles...';
-      try {
-        // Load Google Photorealistic 3D Tiles
-        tileset = await Cesium.createGooglePhotorealistic3DTileset({
-          onlyUsingWithGoogleGeocoder: true,
-        });
-        viewer.scene.primitives.add(tileset);
-        // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
-        // Google Photorealistic 3D Tiles provide their own terrain/elevation.
-        viewer.scene.globe.show = false;
-      } catch (tileError) {
-        console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
+    try {
+      // Load Google Photorealistic 3D Tiles
+      tileset = await Cesium.createGooglePhotorealistic3DTileset({
+        onlyUsingWithGoogleGeocoder: true,
+      });
+      viewer.scene.primitives.add(tileset);
+      // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
+      // Google Photorealistic 3D Tiles provide their own terrain/elevation.
+      viewer.scene.globe.show = false;
+    } catch (tileError) {
+      console.warn('[Init] Google 3D Tiles unavailable:', tileError);
+      let recovered = false;
+
+      // A Google key can be valid for geocoding and blocked for Map Tiles
+      // (API_KEY_SERVICE_BLOCKED). Falling straight to the plain globe would
+      // then make adding a key WORSE than having none, so try ion before
+      // giving up on a photorealistic planet.
+      if (shouldRetryViaIon(mapRoute)) {
+        const retry = ionRetryRoute(mapRoute);
+        console.info('[Init] Retrying via Cesium ion:', describeTilesetRoute(retry));
+        loaderStatus.textContent = 'Google 3D Tiles unavailable. Retrying via Cesium ion...';
+        // Clearing this is what makes CesiumJS take the ion path; the geocoding
+        // global is deliberately left in place.
+        Cesium.GoogleMaps.defaultApiKey = undefined;
+        try {
+          tileset = await Cesium.createGooglePhotorealistic3DTileset({
+            onlyUsingWithGoogleGeocoder: true,
+          });
+          viewer.scene.primitives.add(tileset);
+          viewer.scene.globe.show = false;
+          recovered = true;
+          console.info('[Init] Photorealistic globe recovered through Cesium ion.');
+        } catch (ionError) {
+          console.warn('[Init] Cesium ion retry also failed:', ionError);
+        }
+      }
+
+      if (!recovered) {
         const tileErrorDetail = describeError(tileError);
         loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
         // Keep Cesium globe visible as fallback instead of aborting the app.
         viewer.scene.globe.show = true;
       }
+    }
     }
 
     loaderStatus.textContent = 'Initializing systems...';
@@ -340,6 +392,13 @@ async function init() {
       requestRender: governorRequestRender,
     };
     window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
+
+    // The typed console drives the same action runner as voice. Both factories
+    // are idempotent for a given viewer, so a second runner shares the camera
+    // verb bindings rather than re-registering them.
+    window.__godsEyeView.agentPanel = mountAgentPanel({
+      runAction: createGevActionRunner({ viewer, styleManager, dataManager, sceneDirector, annotations }),
+    });
 
   } catch (error) {
     console.error("God's Eye View initialization failed:", error);
