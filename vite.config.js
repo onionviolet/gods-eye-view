@@ -4658,6 +4658,53 @@ export function normalizeOsmWebcamElement(element) {
  *
  * @returns {Promise<Array<object>>} Normalized camera source objects.
  */
+/**
+ * Drop OSM webcam candidates whose host does not resolve to a public address.
+ *
+ * `osmWebcamStillUrl` filters the STRING — scheme, credentials, literal private
+ * IPs, obvious local names. That is a necessary first pass and not a sufficient
+ * one, because the input is a world-editable OpenStreetMap tag: anyone can set
+ * `contact:webcam` to a name that looks perfectly ordinary and resolves to
+ * 127.0.0.1 or 169.254.169.254. Only the resolved address settles it, so the
+ * check happens here, on the refresh path, where it is already async and runs
+ * once per cache TTL rather than per frame.
+ *
+ * Every address a host answers with must be public — a name returning both a
+ * public and a loopback address is refused rather than raced. Lookups are
+ * memoized per refresh so one host is resolved once, not once per camera.
+ *
+ * @param {Array<object>} cameras Candidates carrying a `url`.
+ * @param {Function} [lookupImpl] Injected for tests.
+ * @returns {Promise<Array<object>>} Only those on public hosts.
+ */
+export async function filterOsmWebcamsToPublicHosts(cameras, lookupImpl = lookupDns) {
+  const verdicts = new Map();
+  const hostOf = (camera) => {
+    try { return new URL(camera.url).hostname.toLowerCase().replace(/^\[|\]$/g, ''); }
+    catch { return null; }
+  };
+
+  for (const host of new Set(cameras.map(hostOf).filter(Boolean))) {
+    verdicts.set(host, (async () => {
+      try {
+        const resolved = await lookupImpl(host, { all: true, verbatim: true });
+        const rows = Array.isArray(resolved) ? resolved : [resolved];
+        const addresses = rows.map((row) => String(row?.address || '')).filter(Boolean);
+        return addresses.length > 0 && addresses.every(isPublicRadioAddress);
+      } catch {
+        return false;
+      }
+    })());
+  }
+
+  const kept = [];
+  for (const camera of cameras) {
+    const host = hostOf(camera);
+    if (host && await verdicts.get(host)) kept.push(camera);
+  }
+  return kept;
+}
+
 async function refreshOsmWebcamSources() {
   const area = String(process.env.CCTV_OSM_AREA || DEFAULT_OSM_WEBCAM_AREA).trim().toUpperCase();
   // Interpolated into Overpass QL: refuse anything that is not a bare country code.
@@ -4682,17 +4729,23 @@ async function refreshOsmWebcamSources() {
   const parsed = JSON.parse(upstream.body);
   const elements = Array.isArray(parsed?.elements) ? parsed.elements : [];
 
-  const cameras = [];
+  const candidates = [];
   for (const element of elements) {
     const camera = normalizeOsmWebcamElement(element);
-    if (camera) cameras.push(camera);
+    if (camera) candidates.push(camera);
   }
+  // The string filter cannot see where a hostname points; resolve before trusting it.
+  const cameras = await filterOsmWebcamsToPublicHosts(candidates);
+  const refusedHosts = candidates.length - cameras.length;
 
   const maxRaw = Number(process.env.CCTV_OSM_MAX_SOURCES || DEFAULT_OSM_WEBCAM_MAX_SOURCES);
   const maxCount = Number.isFinite(maxRaw) ? Math.max(8, Math.min(600, Math.floor(maxRaw))) : DEFAULT_OSM_WEBCAM_MAX_SOURCES;
   const prioritized = prioritizeSources(cameras, maxCount, OSM_WEBCAM_ANCHORS);
   const withHeading = prioritized.filter((camera) => camera.headingConfidence === 'high').length;
   console.log(`[CCTV] Loaded OSM webcam sources (${area}): ${elements.length} tagged, ${cameras.length} with a usable still URL (using nearest ${prioritized.length}, ${withHeading} with a mapped heading)`);
+  if (refusedHosts > 0) {
+    console.warn(`[CCTV] refused ${refusedHosts} OSM webcam${refusedHosts === 1 ? '' : 's'} whose host did not resolve to a public address`);
+  }
   return prioritized;
 }
 

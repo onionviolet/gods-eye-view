@@ -4,6 +4,7 @@ import {
   normalizeOsmWebcamElement,
   osmCameraDirectionDeg,
   osmWebcamStillUrl,
+  filterOsmWebcamsToPublicHosts,
 } from '../../vite.config.js';
 
 // ---------------------------------------------------------------------------
@@ -169,4 +170,54 @@ test('the licence names the catalog and the frame separately', () => {
   assert.match(cam.license, /OpenStreetMap contributors/);
   assert.match(cam.license, /ODbL/);
   assert.match(cam.license, /operator/i);
+});
+
+// ---------------------------------------------------------------------------
+// filterOsmWebcamsToPublicHosts — the string filter is a first pass, not a
+// sufficient one. `contact:webcam` is a world-editable OSM tag.
+// ---------------------------------------------------------------------------
+
+const cam = (url) => ({ id: url, url });
+
+test('a perfectly ordinary hostname that resolves to loopback is refused', () => {
+  // osmWebcamStillUrl passes this: the scheme is https, there are no
+  // credentials, the host is not a literal IP and not *.local. Only the
+  // resolved address gives it away.
+  const lookup = async () => [{ address: '127.0.0.1', family: 4 }];
+  return filterOsmWebcamsToPublicHosts([cam('https://cam.example.org/still.jpg')], lookup)
+    .then((kept) => assert.deepEqual(kept, []));
+});
+
+test('a hostname resolving to the cloud metadata address is refused', async () => {
+  const lookup = async () => [{ address: '169.254.169.254', family: 4 }];
+  assert.deepEqual(await filterOsmWebcamsToPublicHosts([cam('https://metadata.example/snapshot.cgi')], lookup), []);
+});
+
+test('a genuinely public camera is kept', async () => {
+  const lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+  const cams = [cam('https://www.wermelskirchen.de/webcam/wk_saal.jpg')];
+  assert.deepEqual(await filterOsmWebcamsToPublicHosts(cams, lookup), cams);
+});
+
+test('a split-horizon answer is refused, not raced', async () => {
+  // Returning one public and one private address must not be resolvable by
+  // "some address was fine" — the fetch could land on either.
+  const lookup = async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.5', family: 4 }];
+  assert.deepEqual(await filterOsmWebcamsToPublicHosts([cam('https://mixed.example/a.jpg')], lookup), []);
+});
+
+test('a failed or empty lookup is refused rather than assumed public', async () => {
+  const throws = async () => { throw new Error('ENOTFOUND'); };
+  assert.deepEqual(await filterOsmWebcamsToPublicHosts([cam('https://gone.example/a.jpg')], throws), []);
+  const empty = async () => [];
+  assert.deepEqual(await filterOsmWebcamsToPublicHosts([cam('https://empty.example/a.jpg')], empty), []);
+});
+
+test('each distinct host is resolved once, however many cameras it serves', async () => {
+  let calls = 0;
+  const lookup = async () => { calls += 1; return [{ address: '93.184.216.34', family: 4 }]; };
+  const cams = [cam('https://one.example/a.jpg'), cam('https://one.example/b.jpg'), cam('https://two.example/c.jpg')];
+  const kept = await filterOsmWebcamsToPublicHosts(cams, lookup);
+  assert.equal(kept.length, 3);
+  assert.equal(calls, 2);
 });
