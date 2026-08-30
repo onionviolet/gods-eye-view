@@ -191,6 +191,14 @@ const LAYER_ALIASES = new Map([
   ['stingray detector', 'rayhunter-tap'],
   ['imsi catcher detector', 'rayhunter-tap'],
   ['cell site simulator detector', 'rayhunter-tap'],
+  ['ocean', 'ocean-conditions'],
+  ['ocean conditions', 'ocean-conditions'],
+  ['buoys', 'ocean-conditions'],
+  ['buoy', 'ocean-conditions'],
+  ['sea state', 'ocean-conditions'],
+  ['waves', 'ocean-conditions'],
+  ['marine', 'ocean-conditions'],
+  ['ndbc', 'ocean-conditions'],
 ]);
 
 const CITY_ALIASES = new Map([

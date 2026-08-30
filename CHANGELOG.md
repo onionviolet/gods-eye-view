@@ -31,8 +31,6 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 - Data-layer rows and visual-style buttons now carry hover tooltips, so the
   reason a layer is unavailable is legible without hunting for the meta line.
 
-## [Unreleased] — 2026-08-24
-
 ### Added
 
 - Added OpenSeaMap sea marks and OpenSnowMap ski pistes as open-data raster
@@ -41,6 +39,30 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Bing, OpenTopoMap, and OSM Humanitarian stacks and show nothing on the
   Google 3D stack, which renders with the globe hidden — the layer says so
   rather than appearing broken.
+- Added a Rayhunter tap layer: point the app at your own Rayhunter device on
+  your network to plot its cell-site-simulator detections. The proxy that
+  reaches the device accepts local network addresses only.
+- Added an opt-in toggle that routes Radio audio into the voice model, so you
+  can ask about what a station is currently saying. Off by default; the status
+  readout says whether audio is actually reaching the model, not just whether
+  the switch is on.
+- Added the Ocean Conditions layer: ~900 NOAA NDBC buoy stations from one
+  server-cached bulk feed, color-banded by significant wave height, with
+  sparse observation cards, Open-Meteo Marine forecast lines (`FC`-labeled),
+  ocean-point forecast cards, analyst-query coverage, voice aliases
+  ("buoys", "sea state", "waves"), and share token `o`.
+- Added a person-overboard drift Monte Carlo MVP: USCG PIW-1 leeway
+  coefficients (Allen & Plourde 1999 / Allen 2005; Breivik & Allen 2008
+  formulation), 10⁴-particle ensembles run in a worker over a 5×5
+  Open-Meteo forecast grid, rendered as a scrubbable particle cloud labeled
+  `SIMULATED DRIFT ENSEMBLE — NOT A SAR PRODUCT`, started from a `▶ DRIFT`
+  chip on buoy and ocean-point cards.
+
+
+## [Unreleased] — 2026-08-24
+
+### Added
+
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.

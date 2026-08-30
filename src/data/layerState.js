@@ -301,6 +301,7 @@ export const LAYER_STATE_REGISTRY = Object.freeze([
   Object.freeze({ id: 'military', token: 'm', disposition: 'enabled+mirrored-options', optionOwner: 'flights' }),
   Object.freeze({ id: 'military-awareness', token: 'g', disposition: 'enabled-only' }),
   Object.freeze({ id: 'military-installations', token: 'i', disposition: 'enabled-only' }),
+  Object.freeze({ id: 'ocean-conditions', token: 'o', disposition: 'enabled-only' }),
   Object.freeze({ id: 'osm-overlays', token: 'j', disposition: 'enabled+options', optionOwner: 'osmOverlays' }),
   Object.freeze({ id: 'radio', token: 'r', disposition: 'enabled+options', optionOwner: 'radio' }),
   Object.freeze({ id: 'rayhunter-tap', token: 'y', disposition: 'enabled+options', optionOwner: 'rayhunter' }),

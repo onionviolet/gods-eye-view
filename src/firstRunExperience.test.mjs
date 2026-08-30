@@ -654,19 +654,22 @@ test('the voice TOOL SCHEMA is byte-identical to main — the mission mapping is
   const end = src.indexOf('\n];\n', start);
   const block = src.slice(start, end + 4);
 
-  // MERGE NOTE (ours): baseline re-frozen once, deliberately. The guard's own
-  // concern — that first-run missions ride EXISTING tools rather than growing
-  // the schema — is unchanged and still enforced; what moved is the schema
-  // itself, for an unrelated fork reason: `set_map_stack` shipped an enum of
-  // four while this fork ships six stacks (ce730b1), leaving `opentopo` and
-  // `osm-humanitarian` selectable in the UI and unaddressable by voice. That
-  // is a real cache bust on the realtime session, accepted knowingly to make
-  // the stacks reachable. Any FURTHER drift still fails here, which is the
-  // point: re-freeze deliberately, never to make a red test green.
-  assert.equal(block.length, 31199, 'tool schema byte length drifted from the frozen baseline');
+  // MERGE NOTE (ours): baseline re-frozen deliberately, twice now. The guard's
+  // own concern — that first-run missions ride EXISTING tools rather than
+  // growing the schema — is unchanged and still enforced. What moved is the
+  // schema, each time for a reason unrelated to first-run missions:
+  //   1. `set_map_stack` listed four stacks while this fork ships six
+  //      (ce730b1), leaving opentopo/osm-humanitarian unaddressable by voice.
+  //   2. PRs #116 and #100 each add genuinely new tools (Rayhunter tap, ocean
+  //      conditions + drift), which is exactly what a new tool is supposed to
+  //      do here.
+  // Each is a real cache bust on the realtime session, accepted knowingly. Any
+  // drift NOT accounted for above still fails here, which is the point:
+  // re-freeze deliberately, never to make a red test green.
+  assert.equal(block.length, 31483, 'tool schema byte length drifted from the frozen baseline');
   assert.equal(
     crypto.createHash('sha256').update(block).digest('hex'),
-    'f707b660aa93a536ef13a7b46829a6f21c1e7878851acb2f96de48efc6a3db86',
+    'a5da6c9662174b58b2c8a37a326c24deccacf4823e0d73af6fdb1d4c177d01b5',
     'the first-run missions must ride EXISTING tools: no schema edit, no cache bust',
   );
 

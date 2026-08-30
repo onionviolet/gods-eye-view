@@ -16,6 +16,7 @@ import militaryInstallationsLayer from './data/militaryInstallations.js';
 import osmOverlaysLayer from './data/osmOverlays.js';
 import rayhunterTapLayer from './data/rayhunterTap.js';
 import militaryAwarenessLayer from './data/militaryAwareness.js';
+import oceanConditionsLayer from './data/oceanConditions.js';
 import localDataLayers from './data/localLayers.js';
 import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
@@ -335,6 +336,7 @@ async function init() {
     dataManager.register(rayhunterTapLayer);
     dataManager.register(militaryAwarenessLayer);
     militaryAwarenessLayer.attachDataManager(dataManager);
+    dataManager.register(oceanConditionsLayer);
     for (const layer of localDataLayers) {
       dataManager.register(layer);
     }
