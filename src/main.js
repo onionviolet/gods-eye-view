@@ -43,7 +43,14 @@ import {
   holdContinuousRender,
   releaseContinuousRender,
 } from './renderGovernor.js';
-import { installScopeMask } from './scopeMask.js';
+import { installScopeMask, setScopeMaskEnabled } from './scopeMask.js';
+import {
+  activeProfile,
+  isMobileDevice,
+  applyTilesetProfile,
+  disableAllPostProcess,
+  installDiagOverlay,
+} from './mobileProfile.js';
 import { initFirstRunExperience } from './firstRunExperience.js';
 
 initLogoGaze();
@@ -152,6 +159,12 @@ async function init() {
       addResourceHint('dns-prefetch', 'https://maps.googleapis.com');
     }
 
+    // Phones get lighter rendering settings (src/mobileProfile.js). Decided
+    // once, before the viewer exists, because MSAA and the drawing buffer are
+    // constructor options that cannot change later.
+    const mobile = isMobileDevice();
+    const deviceProfile = activeProfile();
+
     // Create the Cesium viewer with minimal chrome
     const viewer = new Cesium.Viewer('cesiumContainer', {
       timeline: false,
@@ -179,13 +192,20 @@ async function init() {
         document.body.appendChild(el);
         return el;
       })(),
-      msaaSamples: 4,
+      msaaSamples: deviceProfile.msaaSamples,
       contextOptions: {
         webgl: {
-          preserveDrawingBuffer: true,
+          preserveDrawingBuffer: deviceProfile.preserveDrawingBuffer,
         },
       },
     });
+
+    if (mobile) {
+      // Render at CSS pixels: a 3x device pixel ratio triples the fill cost.
+      viewer.useBrowserRecommendedResolution = true;
+      // Read by the diag readout and by anyone debugging from the console.
+      window.__gevMobile = true;
+    }
 
     // Cap the default render loop at 60 fps. Cesium's loop otherwise runs at
     // the display's refresh rate — 120 Hz on ProMotion panels — doubling GPU
@@ -242,6 +262,8 @@ async function init() {
       tileset = await Cesium.createGooglePhotorealistic3DTileset({
         onlyUsingWithGoogleGeocoder: true,
       });
+      // Cache and detail limits; a no-op on desktop.
+      applyTilesetProfile(tileset, deviceProfile);
       viewer.scene.primitives.add(tileset);
       // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
       // Google Photorealistic 3D Tiles provide their own terrain/elevation.
@@ -307,6 +329,14 @@ async function init() {
 
     // Initialize the style manager (post-processing, HUD, locations, share links)
     const styleManager = new StyleManager(viewer, { mapStackController });
+
+    if (deviceProfile.disablePostProcess) {
+      // After the StyleManager registered its stages, so they all exist to be
+      // switched off.
+      const disabledStages = disableAllPostProcess(viewer);
+      console.info(`[mobile] post-process disabled (${disabledStages} stages)`);
+    }
+
     // The previous multi-canvas weather compositor remains disabled. Cockpit
     // clouds use a separate, capped low-resolution GPU pass that never attaches
     // Cesium fog or post-process stages and is fully stopped in map mode.
@@ -399,6 +429,11 @@ async function init() {
     // toggle finds it live.
     installScopeMask(viewer);
 
+    if (deviceProfile.disablePostProcess) {
+      // One more full-screen pass; the mobile profile skips it.
+      setScopeMaskEnabled(false);
+    }
+
     // The follow camera recomputes the tracked target's dead-reckon position
     // every frame — tracking anything is a per-frame animation. (perf wave 2)
     viewer.trackedEntityChanged.addEventListener(() => {
@@ -442,6 +477,10 @@ async function init() {
       getRenderGovernorDiagnostics,
       requestRender: governorRequestRender,
     };
+
+    // Only with ?gevFlags=diag. Last, so the readout sees the final viewer
+    // state.
+    installDiagOverlay(viewer);
     window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
 
     // The typed console drives the same action runner as voice. Both factories
