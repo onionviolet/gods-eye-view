@@ -195,6 +195,16 @@ async function init() {
       msaaSamples: deviceProfile.msaaSamples,
       contextOptions: {
         webgl: {
+          // MERGE NOTE (ours): PR #72 removes this and pins the flag false,
+          // arguing the voice viewport capture reads the canvas synchronously
+          // inside a postRender callback so the buffer never needs preserving.
+          // That is not true in this tree: renderFreshCesiumFrame resolves a
+          // promise from inside the postRender listener and captureViewportImage
+          // awaits it, so drawImage runs in a continuation after the frame is
+          // done, not within it. isNearlyBlackFrame exists precisely because
+          // blank captures have happened here before. Kept device-driven (PR
+          // #79): true where the capture must work, false on mobile where the
+          // zero-copy swap is worth more than voice screenshots.
           preserveDrawingBuffer: deviceProfile.preserveDrawingBuffer,
         },
       },
@@ -220,6 +230,14 @@ async function init() {
     // wheel. Bind that (and keep two-finger scroll from tilting) without
     // changing mouse wheel or touch-screen pinch-zoom.
     installTouchpadCamera(viewer);
+
+    // Enable glass blur effects on hardware that can afford it.  (perf #8.3)
+    // The CSS defaults to no backdrop-filter; adding this class activates all
+    // 22 blur passes via CSS custom properties. On lower-end devices the class
+    // stays absent and panels use the higher-opacity --glass-bg fallback.
+    if (window.devicePixelRatio >= 2 || navigator.hardwareConcurrency >= 8) {
+      document.body.classList.add('glass-effects');
+    }
 
     // Register per-layer data attribution into the "Data attribution" popover.
     // Required by each source's license (ODbL, CC BY-NC-SA, NASA FIRMS, etc.);
