@@ -2058,6 +2058,156 @@ function tomtomProxy() {
 }
 
 /**
+ * Rayhunter (EFF cell-site-simulator/IMSI-catcher detector) local-device proxy (#56).
+ *
+ * Unlike every other proxy in this file, the upstream is not a fixed public
+ * host — it's the user's OWN Rayhunter device on their local network (ships
+ * flashed onto an Orbic hotspot, default http://192.168.1.1:8080 per
+ * EFForg/rayhunter's install docs). The browser can't fetch it directly:
+ * embedded-device web servers like Rayhunter's send no CORS headers, so a
+ * cross-origin browser fetch would be blocked. This dev-server middleware
+ * runs on the user's own machine, so it CAN reach that LAN address; the
+ * browser just calls this same-origin path instead.
+ *
+ * Real API, verified against EFForg/rayhunter's source (daemon/src/main.rs
+ * route table + daemon/src/stats.rs + daemon/src/diag.rs, not guessed):
+ *   GET /api/qmdl-manifest        → {entries: ManifestEntry[], current_entry}
+ *   GET /api/analysis-report/:name → NDJSON: first line ReportMetadata, then
+ *     one AnalysisRow per line: {packet_timestamp, skipped_message_reason,
+ *     events: [{event_type: Informational|Low|Medium|High, message}|null]}.
+ *     :name is "live" for the in-progress recording, or a manifest entry name.
+ * No auth on either route (confirmed: no auth middleware in the route table).
+ *
+ * `base` (host:port) is genuinely user-supplied per request — that's the
+ * whole point, unlike every other proxy's fixed upstream — so it's checked
+ * against a plain `host:port` shape and the cloud-metadata SSRF target
+ * (169.254.169.254) is refused outright regardless of context. The rest of
+ * this file's heavier defenses (byte caps, redirect/DNS-rebinding pinning
+ * like radio-browser-proxy) are deliberately NOT applied here: the target is
+ * hardware the user owns and chose to point this at, not an
+ * attacker-controlled URL, and the response (sparse warning rows, mostly)
+ * is naturally small. If this dev server is LAN-exposed (HOST=0.0.0.0), the
+ * same tradeoff SECURITY.md's "Network exposure" section already documents
+ * for every other proxy applies here too — anyone on that LAN can drive this
+ * proxy at any address the host machine can reach, not just the intended
+ * Rayhunter device.
+ *
+ * Routes: GET /api/rayhunter/manifest?base=host:port
+ *         GET /api/rayhunter/analysis/:name?base=host:port
+ * @returns {import('vite').Plugin}
+ */
+/**
+ * Whether one resolved IP is a plausible address for a Rayhunter on your own
+ * network — i.e. private, loopback, or CGNAT.
+ *
+ * This is an ALLOWLIST by address class, and it is deliberately the inverse of
+ * the radio proxy's `isPublicRadioAddress`. A Rayhunter is by definition a
+ * device on your LAN, so "must be a LAN address" is both the tighter rule and
+ * the truer description of the feature. The shipped guard was a blocklist of
+ * one literal string, `169.254.169.254`, which does not survive contact with
+ * an attacker: `2852039166` and `0251.0376.0251.0376` are the same address
+ * written differently and both satisfy the `host:port` pattern, and
+ * `metadata.google.internal` simply resolves to it. Checking the RESOLVED
+ * address instead of the typed string closes all three at once, and link-local
+ * is refused wholesale so the cloud-metadata address has no special case left
+ * to slip through.
+ *
+ * @param {string} value A resolved IP literal, never a hostname.
+ * @returns {boolean} True when the address is on a local network.
+ */
+export function isLanDeviceAddress(value) {
+  const address = String(value ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!address) return false;
+  if (!address.includes(':')) {
+    const parts = address.split('.');
+    // Reject anything that is not a plain dotted quad, which rules out the
+    // decimal and octal spellings of the metadata address outright.
+    if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+    const [a, b] = parts.map(Number);
+    if (a === 169 && b === 254) return false; // link-local, incl. 169.254.169.254
+    return a === 10
+      || a === 127
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127);
+  }
+  // IPv6: loopback and unique-local only. fe80::/10 is link-local and refused.
+  if (address === '::1') return true;
+  return /^f[cd][0-9a-f]{2}:/.test(address);
+}
+
+function rayhunterProxy() {
+  const BASE_RE = /^[a-zA-Z0-9.-]{1,253}:([0-9]{1,5})$/;
+  const NAME_RE = /^(live|[A-Za-z0-9_.-]{1,128})$/;
+  const TIMEOUT_MS = 8_000;
+
+  /**
+   * Validate the `base` parameter and confirm it resolves onto a local
+   * network. Async because the shape of the string says nothing about where it
+   * points: a name resolves wherever its DNS says, so the address has to be
+   * looked up before it can be judged. EVERY resolved address must qualify —
+   * a name answering with both a LAN address and a public one is refused
+   * rather than raced.
+   * @returns {Promise<?string>} the validated `host:port`, or null.
+   */
+  async function validBase(raw) {
+    const base = String(raw || '').trim();
+    const match = BASE_RE.exec(base);
+    if (!match) return null;
+    const port = Number(match[1]);
+    if (port < 1 || port > 65535) return null;
+    const host = base.slice(0, base.length - match[1].length - 1);
+    try {
+      const resolved = await lookupDns(host, { all: true, verbatim: true });
+      const rows = Array.isArray(resolved) ? resolved : [resolved];
+      const addresses = rows.map((row) => String(row?.address || '')).filter(Boolean);
+      if (!addresses.length || !addresses.every(isLanDeviceAddress)) return null;
+    } catch {
+      return null;
+    }
+    return base;
+  }
+
+  function sendJson(res, status, obj) {
+    if (res.headersSent) return;
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(obj));
+  }
+
+  async function proxyGet(res, url, contentType) {
+    try {
+      const upstream = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const body = await upstream.text();
+      if (res.headersSent) return;
+      res.writeHead(upstream.ok ? 200 : 502, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
+      res.end(upstream.ok ? body : JSON.stringify({ error: `rayhunter device HTTP ${upstream.status}` }));
+    } catch (err) {
+      console.warn('[rayhunter-proxy] upstream fetch failed:', err?.message || err);
+      sendJson(res, 502, { error: 'rayhunter device unreachable' });
+    }
+  }
+
+  return {
+    name: 'rayhunter-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/rayhunter/manifest', async (req, res) => {
+        const base = await validBase(new URL(req.url, 'http://internal').searchParams.get('base'));
+        if (!base) { sendJson(res, 400, { error: 'invalid or missing base' }); return; }
+        await proxyGet(res, `http://${base}/api/qmdl-manifest`, 'application/json');
+      });
+      server.middlewares.use('/api/rayhunter/analysis', async (req, res) => {
+        const url = new URL(req.url, 'http://internal');
+        const base = await validBase(url.searchParams.get('base'));
+        const name = url.pathname.slice(1); // mount path already stripped by connect
+        if (!base) { sendJson(res, 400, { error: 'invalid or missing base' }); return; }
+        if (!NAME_RE.test(name)) { sendJson(res, 400, { error: 'invalid recording name' }); return; }
+        await proxyGet(res, `http://${base}/api/analysis-report/${name}`, 'application/x-ndjson');
+      });
+    },
+  };
+}
+
+/**
  * NASA FIRMS live active-fire proxy with a memory + disk cache.
  * Upstream: https://firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SOURCE}/world/2
  *
@@ -7788,6 +7938,7 @@ export default defineConfig(({ mode }) => {
       celestrakProxy(),
       tomtomProxy(),
       firmsProxy(),
+      rayhunterProxy(),
       rocketLaunchesProxy(),
       terrainHeightsProxy(),
       adsbdbProxy(),
