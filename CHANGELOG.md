@@ -3,7 +3,7 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
-## [Unreleased] — 2026-08-24
+## [Unreleased] — 2026-08-30
 
 ### Fixed
 
@@ -16,9 +16,18 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   assuming zero, and a new post-arrival guard measures the rendered surface once
   tiles have streamed in and lifts the eye to a usable clearance if it is still
   buried. The guard yields immediately to manual camera input.
+- Voice can now switch to the OpenTopoMap and OSM Humanitarian basemaps. Both
+  were selectable in the interface and silently unaddressable by voice, which
+  read as the assistant ignoring a valid request.
 
 ### Added
 
+- Added OpenSeaMap sea marks and OpenSnowMap ski pistes as open-data raster
+  overlays, toggleable independently under one Map Overlays row and reachable
+  by voice. They draw on the globe surface, so they are visible on the OSM,
+  Bing, OpenTopoMap, and OSM Humanitarian stacks and show nothing on the
+  Google 3D stack, which renders with the globe hidden — the layer says so
+  rather than appearing broken.
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.
@@ -29,6 +38,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
+- Connection warm-up for Cesium ion and Google Maps now happens only when the
+  matching credential is configured. A keyless install contacts neither, so the
+  previous unconditional hints spent connection slots on hosts that session
+  would never call.
 - First-run presentation now opens with Detection `DENSE` at 75%, `ELASTIC`
   allocation, Fade 7%, Outside 1%, scope feather 11%, and aircraft 3D models in
   `PROXIMITY`. Stored state and share links still override these baselines.

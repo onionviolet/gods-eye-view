@@ -40,6 +40,8 @@ Upstream pull requests, none of them merged upstream at the time of writing:
 | [#82](https://github.com/bilawalsidhu/gods-eye-view/pull/82) | Caps the buffered snapshot body in the CCTV frame proxy |
 | [#97](https://github.com/bilawalsidhu/gods-eye-view/pull/97) | Hardens the Vite host allowlist |
 | [#89](https://github.com/bilawalsidhu/gods-eye-view/pull/89) | RainViewer weather radar, re-landed with the PoC's four blocking bugs fixed |
+| [#118](https://github.com/bilawalsidhu/gods-eye-view/pull/118) | Post-arrival camera ground guard — never frame an arrival buried in terrain |
+| [#114](https://github.com/bilawalsidhu/gods-eye-view/pull/114) | OpenSeaMap / OpenSnowMap raster overlays (upstream issue #10) |
 
 ## Merge decisions worth knowing
 
@@ -68,6 +70,30 @@ Neither author could have made this call from inside their own branch.
 
 Both merge points carry a `MERGE NOTE (ours)` comment in `src/main.js`.
 
+### Two later upstream PRs re-derive this, and both are subsets
+
+[#123](https://github.com/bilawalsidhu/gods-eye-view/pull/123) and
+[#109](https://github.com/bilawalsidhu/gods-eye-view/pull/109) arrived after the
+above and independently rebuild parts of it. **Neither is merged, and neither
+should be.**
+
+| PR | What it has | What it lacks |
+|---|---|---|
+| #123 | The ion retry, same mechanism (clear the key, let CesiumJS take the ion path) | The keyless third regime; route modelling; the loader-status line; a graceful non-recovery |
+| #109 | All three regimes | The retry after a *failed* direct load — it picks a route up front and never falls back mid-flight; the geocoding carve-out |
+
+The one genuinely new fact between them is **why** the retry is needed as often
+as it is: Google refuses Map Tiles outright to EEA-billed projects
+(`developers.google.com/maps/comms/eea/map-tiles`), so a perfectly valid key
+fails for an entire billing region — not just the `API_KEY_SERVICE_BLOCKED`
+misconfiguration this fork already documented. #109 also names the ion asset id
+(`2275207`) that Cesium resells the mesh under. Both facts are now cited in
+`shouldRetryViaIon`'s JSDoc in `src/mapCredentials.js`; the code needed no
+change.
+
+If either lands upstream, **resolve the rebase toward ours.** The merge note in
+`src/main.js` says so at the conflict point, which is where it will be read.
+
 ## Local additions
 
 ### Two keyless map stacks, added rather than substituted
@@ -86,6 +112,28 @@ serve yields dead tiles rather than an error.
 Both ids are registered in `CABLE_GLOBE_STACK_IDS`. The per-stack cable
 classification test walks the real `MAP_STACKS` and failed loudly on the
 omission, which is what its comment promises it will do.
+
+**The same rule was broken one layer up, and nothing caught it.** Both stacks
+were registered in `CABLE_GLOBE_STACK_IDS` and in the UI, and neither was in the
+voice vocabulary: `set_map_stack`'s server-side enum in `vite.config.js` listed
+four stacks, and `STACK_ALIASES` in `gevActions.js` had no phrasing for either.
+They were selectable by mouse and unaddressable by voice, and *no* error was
+raised anywhere — the operator just got an assistant that appeared to ignore a
+valid request.
+
+The cable test caught its omission because it walks the real registry; the voice
+vocabulary had no such test, so it did not. `mapStackAliasCoverage()` now derives
+coverage from `MAP_STACKS` the same way. **"Reachable" is not one check.** A new
+stack has to reach `MAP_STACKS`, `CABLE_GLOBE_STACK_IDS`, the tool enum, and the
+alias map, and only a test that walks the registry will tell you which one was
+missed.
+
+Re-freezing the `GEV_REALTIME_TOOLS` hash in `firstRunExperience.test.mjs` was
+part of this. That guard exists so the first-run mission work could not quietly
+grow the tool schema; its concern is intact and still enforced. The baseline
+moved once, deliberately, for an unrelated reason, and the edit is a real
+realtime-session cache bust. Re-freeze it when you mean to change the schema —
+never to make a red test green.
 
 ### `.claude/launch.json`
 
@@ -141,10 +189,34 @@ than force-resolved: [#53](https://github.com/bilawalsidhu/gods-eye-view/pull/53
    [#15](https://github.com/bilawalsidhu/gods-eye-view/pull/15) Meshtastic,
    [#14](https://github.com/bilawalsidhu/gods-eye-view/pull/14) ALPR / Flock,
    [#13](https://github.com/bilawalsidhu/gods-eye-view/pull/13) NIFC wildfire.
-3. **Four commits from the `kaizen` remote**, independent of its Mobius work:
-   renderer capability negotiation, the mobile renderer fallback, the canonical
-   global camera home, and gating ion/Google resource hints on actual
-   credential availability.
+3. **Commits from the `kaizen` remote**, independent of its Mobius work.
+   Resource-hint gating is **done** — taken as an adaptation, not a
+   cherry-pick, because kaizen's second commit (`5f2d872`) reverts the static
+   `index.html` hints its own first commit (`0380959`) added, so only the
+   runtime-gated form is worth landing, and the gate had to be re-pointed at
+   `mapRoute.googleApiKey` rather than the raw env var. Still open: renderer
+   capability negotiation, the mobile renderer fallback, and the canonical
+   global camera home.
+
+4. **Not yet assessed, from the 2026-08-30 sweep** (upstream reached #127; none
+   merged upstream):
+   [#116](https://github.com/bilawalsidhu/gods-eye-view/pull/116) Rayhunter
+   cell-site-simulator tap layer,
+   [#115](https://github.com/bilawalsidhu/gods-eye-view/pull/115) routing Radio
+   audio into the voice model — adjacent to item 1 and worth reading before it,
+   [#100](https://github.com/bilawalsidhu/gods-eye-view/pull/100) ocean
+   conditions with a person-overboard drift Monte Carlo,
+   [#79](https://github.com/bilawalsidhu/gods-eye-view/pull/79) a mobile render
+   profile that overlaps kaizen's renderer work in item 3.
+5. **Duplicate-implementation pressure is now the norm upstream, not the
+   exception.** The 08-30 sweep found the RainViewer layer implemented twice
+   ([#89](https://github.com/bilawalsidhu/gods-eye-view/pull/89), already landed
+   here, and [#113](https://github.com/bilawalsidhu/gods-eye-view/pull/113)), the
+   `node:fs` fix twice (#83 landed, #112), the Google-credential ladder twice
+   (#123, #109), and the Windows CRLF fixture problem **four** times (#81, #88,
+   #121, #122). Check this file and `git log` before absorbing anything: the
+   question is no longer "is this fixed upstream" but "which of the several
+   fixes is already here".
 
 Re-check upstream with:
 
@@ -155,9 +227,10 @@ gh api repos/bilawalsidhu/gods-eye-view/compare/main...OWNER:REPO:main
 
 ## Verifying a change
 
-`npm test` is the gate. The suite stands at **2,819 passing, 0 failing** on
-`dev`, against 2,587 on upstream `main`; PR #51 brings 218 of the difference and the
-weather-radar work adds six.
+`npm test` is the gate. The suite stands at **2,833 passing, 0 failing** on
+`dev`, against 2,587 on upstream `main`; PR #51 brings 218 of the difference,
+the weather-radar work adds six, PR #118 six more, and PR #114 plus the map-stack
+reachability work the rest.
 
 Two allocation microbenchmarks skip on Node 26 because their budgets are
 calibrated for Node 24. That is expected, not a failure.

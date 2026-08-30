@@ -1,6 +1,34 @@
 # God's Eye View Current State
 
-Updated: August 24, 2026
+Updated: August 30, 2026
+
+> **2026-08-30 — OSM overlays, arrival ground guard, voice stack parity.**
+> Three changes landed together.
+>
+> **OpenSeaMap / OpenSnowMap overlays** (`src/data/osmOverlays.js`, layer id
+> `osm-overlays`, token `j`) draw sea marks and ski pistes as raster overlays on
+> the Cesium **globe** surface. Both sub-toggles default ON, because switching
+> the row on with neither chosen would draw nothing and read as broken. They are
+> invisible — not broken — on the default `photoreal` stack, which renders with
+> `globe.show = false`; `getStats().error` says so in plain language rather than
+> leaving the operator to guess. Registry is now 18 layers.
+>
+> **Arrival ground guard** (`src/cameraGroundGuard.js`). Arrival framing is
+> computed before the destination's tiles exist, so every ground-height guess
+> available to it is unreliable and the fallback is sea level — burying the eye
+> by roughly the local elevation (~1,609 m over Denver, ~2,240 m over Mexico
+> City), which renders a black frame. The guard measures the real surface after
+> the flight lands, once `scene.sampleHeight` is trustworthy, and lifts the eye
+> to a usable clearance. It yields immediately to manual camera input.
+>
+> **All six map stacks are now reachable by voice.** `opentopo` and
+> `osm-humanitarian` were selectable in the UI and unaddressable by voice: the
+> `set_map_stack` enum listed four. Coverage is now derived from the live
+> `MAP_STACKS` registry, so a stack cannot ship voice-mute again.
+>
+> Resource hints for ion and Google Maps are added at runtime and only once the
+> matching credential exists, so the keyless regime never warms a connection to
+> a host it will never call.
 
 > **2026-08-23 — first-run mission launcher** (`src/firstRunExperience.js`,
 > `#first-run-launcher`, styles at the tail of `style.css`). After startup
@@ -2037,7 +2065,7 @@ silently demoting every later lookup for the session.
   with compact fields for enabled layers, allowlisted layer options, panel state,
   and the active preset's allowlisted shader controls. An absent layer field uses
   deterministic defaults; an explicit empty field means no enabled layers.
-- The registry seals only after all 16 production layers register, and every
+- The registry seals only after all 18 production layers register, and every
   layer has an explicit serialization disposition. Unknown enabled-layer tokens
   reject the layer payload; unknown option tokens are ignored. Restoration
   settles independently per layer so one failed or unavailable source cannot
