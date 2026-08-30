@@ -2079,6 +2079,32 @@ function tomtomProxy() {
  *
  * @returns {import('vite').Plugin}
  */
+/**
+ * Whether a failed `fetch` looks like it never established a connection, and
+ * so might succeed if forced onto IPv4.
+ *
+ * Node 18+ implements Happy Eyeballs, which races A and AAAA records. On a
+ * host with a AAAA record and no working IPv6 route the race can settle on the
+ * dead address, and `fetch` surfaces that as a bare `TypeError: fetch failed`
+ * with the real reason buried in `cause` (#68). Those are worth one explicit
+ * IPv4 retry. Nothing else is: an abort is the caller's own timeout, and a
+ * refused or unresolvable host fails the same way on either family.
+ *
+ * @param {unknown} err Thrown by `fetch`.
+ * @returns {boolean} True when an IPv4 retry is worth attempting.
+ */
+export function isConnectFailure(err) {
+  if (!err) return false;
+  if (err.name === 'AbortError' || err.name === 'TimeoutError') return false;
+  const codes = new Set(['ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ECONNREFUSED']);
+  for (let cause = err, depth = 0; cause && depth < 5; cause = cause.cause, depth += 1) {
+    if (codes.has(cause.code)) return true;
+    if (Array.isArray(cause.errors) && cause.errors.some((inner) => codes.has(inner?.code))) return true;
+  }
+  // A bare `fetch failed` with no code at all is the Happy Eyeballs signature.
+  return err instanceof TypeError && /fetch failed/i.test(String(err.message || ''));
+}
+
 function firmsProxy() {
   const TTL_MS = 30 * 60_000;
   const STATUS_TTL_MS = 5 * 60_000;
@@ -2119,15 +2145,58 @@ function firmsProxy() {
   }
 
   /**
+   * Fetch helper for FIRMS endpoints that handles Node 24 IPv6 auto-selection failures.
+   * Tries standard fetch() first. If fetch fails with a network connection error
+   * (e.g. ETIMEDOUT / ENETUNREACH / fetch failed when IPv6 is unrouted/unavailable),
+   * falls back to node:https GET with family: 4 (IPv4 explicit).  (Issue #68)
+   */
+  async function fetchFirmsWithFallback(url, timeoutMs = 60_000) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.text();
+    } catch (err) {
+      if (err?.message?.startsWith('HTTP ')) throw err;
+      // Only a connect-level failure is worth a second attempt. Retrying an
+      // abort, a DNS miss, or a genuinely unreachable host just pays the
+      // timeout twice and reports the *second* failure, which is the less
+      // informative one.
+      if (!isConnectFailure(err)) throw err;
+
+      return new Promise((resolve, reject) => {
+        const req = https.get(url, { family: 4, timeout: timeoutMs }, (res) => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => resolve(data));
+        });
+        req.on('timeout', () => {
+          req.destroy(new Error('timeout'));
+        });
+        req.on('error', (fallbackErr) => {
+          const finalErr = new Error(`fetch failed: ${err?.message || err}`);
+          finalErr.cause = err?.cause || fallbackErr;
+          reject(finalErr);
+        });
+      });
+    }
+  }
+
+  /**
    * Fetch + parse one FIRMS source. Throws on HTTP error or a non-CSV body
    * (FIRMS reports errors as HTML/plain text, never CSV). Never log the URL —
    * it embeds the MAP_KEY.
    */
   async function fetchSource(key, source) {
     const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/${source}/world/2`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const records = parseFirmsCsv(await res.text());
+    const bodyText = await fetchFirmsWithFallback(url, 60_000);
+    const records = parseFirmsCsv(bodyText);
     if (records === null) throw new Error('non-CSV upstream response');
     return records;
   }
@@ -2151,7 +2220,8 @@ function firmsProxy() {
         // ~131k records — RangeError, and the whole source is silently dropped.
         for (const record of records) fires.push(record);
       } catch (err) {
-        console.warn(`[firms-proxy] ${source} fetch failed:`, err?.message || err);
+        const detail = err?.cause ? `${err.message} (${err.cause.message || err.cause})` : (err?.message || err);
+        console.warn(`[firms-proxy] ${source} fetch failed:`, detail);
         sources.push({ source, count: 0, ok: false });
       }
     }
@@ -2185,14 +2255,14 @@ function firmsProxy() {
       statusInflight = (async () => {
         try {
           const url = `https://firms.modaps.eosdis.nasa.gov/mapserver/mapkey_status/?MAP_KEY=${encodeURIComponent(key)}`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const body = await res.json();
+          const bodyText = await fetchFirmsWithFallback(url, 10_000);
+          const body = JSON.parse(bodyText);
           const used = Number(body?.current_transactions);
           const limit = Number(body?.transaction_limit);
           return Number.isFinite(used) && Number.isFinite(limit) ? { used, limit } : null;
         } catch (err) {
-          console.warn('[firms-proxy] mapkey status failed:', err?.message || err);
+          const detail = err?.cause ? `${err.message} (${err.cause.message || err.cause})` : (err?.message || err);
+          console.warn('[firms-proxy] mapkey status failed:', detail);
           return null;
         }
       })()
@@ -2257,7 +2327,8 @@ function firmsProxy() {
                 return fresh;
               })
               .catch((err) => {
-                console.warn(`[firms-proxy] refresh failed (${err?.message || err}) — serving cache if any`);
+                const detail = err?.cause ? `${err.message} (${err.cause.message || err.cause})` : (err?.message || err);
+                console.warn(`[firms-proxy] refresh failed (${detail}) — serving cache if any`);
                 return null;
               })
               .finally(() => { inflight = null; });
@@ -2272,7 +2343,8 @@ function firmsProxy() {
             sendJson(502, { error: 'firms fetch failed and no cache available' });
           }
         } catch (err) {
-          console.warn('[firms-proxy] error:', err?.message || err);
+          const detail = err?.cause ? `${err.message} (${err.cause.message || err.cause})` : (err?.message || err);
+          console.warn('[firms-proxy] error:', detail);
           sendJson(500, { error: 'firms proxy error' });
         }
       });

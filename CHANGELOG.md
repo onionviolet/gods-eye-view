@@ -19,6 +19,19 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 - Voice can now switch to the OpenTopoMap and OSM Humanitarian basemaps. Both
   were selectable in the interface and silently unaddressable by voice, which
   read as the assistant ignoring a valid request.
+- Active fires now load on connections where the wildfire source is only
+  reachable over IPv4. The request retries explicitly over IPv4 when the first
+  attempt fails to connect, and the proxy log now names the underlying cause
+  instead of reporting a bare "fetch failed".
+- Mapped military installations no longer come back nearly empty. Areas and
+  site relations arrived without a centre point and were being discarded, so
+  the layer drew only the sites mapped as single points — nothing at all over
+  places mapped purely as areas.
+- Bike-share stations from GBFS v3 feeds now show their names.
+- Data-layer rows and visual-style buttons now carry hover tooltips, so the
+  reason a layer is unavailable is legible without hunting for the meta line.
+
+## [Unreleased] — 2026-08-24
 
 ### Added
 
