@@ -14,7 +14,38 @@ import {
   cctvVoiceFocusOutcome,
   formatTrackedEntityLabel,
   knownRadioLocation,
+  mapStackAliasCoverage,
+  normalizeStackId,
 } from './gevActions.js';
+import { MAP_STACKS } from '../mapStackController.js';
+
+test('every live map stack is reachable by voice', () => {
+  // A stack in MAP_STACKS but absent from STACK_ALIASES is selectable in the
+  // UI and silently unaddressable by voice — no error is raised anywhere, so
+  // nothing but this assertion can catch it. Both stacks this fork appends
+  // shipped that way until they were added to the vocabulary.
+  const { covered, missing } = mapStackAliasCoverage();
+  assert.deepEqual(missing, [], `map stacks unreachable by voice: ${missing.join(', ')}`);
+  assert.equal(covered.length, MAP_STACKS.length);
+});
+
+test('the two fork-appended keyless stacks resolve from natural phrasings', () => {
+  for (const phrase of ['topo', 'Topographic', 'OpenTopoMap', 'opentopo', 'terrain map']) {
+    assert.equal(normalizeStackId(phrase), 'opentopo', phrase);
+  }
+  for (const phrase of ['HOT', 'humanitarian', 'OSM Humanitarian', 'osm-humanitarian']) {
+    assert.equal(normalizeStackId(phrase), 'osm-humanitarian', phrase);
+  }
+});
+
+test('normalizeStackId refuses what it does not know instead of guessing', () => {
+  // A retired or invented id must fail here, not resolve cleanly and then die
+  // at the controller with "Unknown map stack" — which reads to the operator
+  // as a broken command rather than an unavailable source.
+  for (const phrase of ['', '   ', 'bing', 'mapbox', 'satellite', null, undefined]) {
+    assert.equal(normalizeStackId(phrase), null, String(phrase));
+  }
+});
 
 test('track_entity narration names aircraft callsign → registration → icao24', () => {
   const found = { callsign: 'SWA696', registration: 'N123AB', icao24: 'ae1fa4' };

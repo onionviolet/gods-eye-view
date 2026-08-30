@@ -10,6 +10,7 @@ import { CCTV_FOCUS_RESULT } from '../data/cctv.js';
 import { contextModeWord } from '../contextModePolicy.js';
 import { createAnalystEngine } from '../data/analystEngine.js';
 import { layerFeedState } from '../data/manager.js';
+import { MAP_STACKS } from '../mapStackController.js';
 import militaryAwarenessLayer, {
   collectAircraftProximityWindow,
   contactsWindowFromSnapshot,
@@ -224,7 +225,44 @@ const STACK_ALIASES = new Map([
   ['road', 'osm'],
   ['roads', 'osm'],
   ['road map', 'osm'],
+  // MERGE NOTE (ours): the two keyless stacks this fork appends (ce730b1) —
+  // upstream has neither, so upstream's vocabulary will never grow these.
+  // `mapStackAliasCoverage()` below asserts every live MAP_STACKS id is
+  // reachable from here, so a future stack cannot ship voice-unreachable.
+  ['opentopo', 'opentopo'],
+  ['topo', 'opentopo'],
+  ['topographic', 'opentopo'],
+  ['topographical', 'opentopo'],
+  ['opentopomap', 'opentopo'],
+  ['terrain map', 'opentopo'],
+  ['osm-humanitarian', 'osm-humanitarian'],
+  ['humanitarian', 'osm-humanitarian'],
+  ['osm humanitarian', 'osm-humanitarian'],
+  ['hot', 'osm-humanitarian'],
+  ['hot osm', 'osm-humanitarian'],
 ]);
+
+/**
+ * Which live `MAP_STACKS` ids the voice vocabulary can actually reach.
+ *
+ * Exists because the failure it guards is silent from the operator's side: a
+ * stack present in `MAP_STACKS` and absent from `STACK_ALIASES` is selectable
+ * in the UI and simply unaddressable by voice, with no error anywhere. That is
+ * exactly what happened to `opentopo`/`osm-humanitarian` between ce730b1 and
+ * this commit. Deriving the answer from the real registry retires the bug
+ * class rather than fixing this one instance of it.
+ *
+ * @returns {{covered: string[], missing: string[]}} ids by reachability.
+ */
+export function mapStackAliasCoverage() {
+  const aliased = new Set(STACK_ALIASES.values());
+  const covered = [];
+  const missing = [];
+  for (const stack of MAP_STACKS) {
+    (aliased.has(stack.id) ? covered : missing).push(stack.id);
+  }
+  return { covered, missing };
+}
 
 /** Search order for track_entity across entity layer families. */
 const TRACKABLE_FAMILIES = [
@@ -1048,7 +1086,14 @@ function clearAnnotations(annotations) {
   return { ok: true, action: 'clear_annotations' };
 }
 
-function normalizeStackId(value) {
+/**
+ * Resolve an operator phrasing to a live `MAP_STACKS` id, or null.
+ * Exported so the alias vocabulary is testable directly; the tool handler is
+ * the only production caller.
+ * @param {string} value Raw phrasing from the model.
+ * @returns {string|null} A live stack id, or null when unrecognized.
+ */
+export function normalizeStackId(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return null;
   return STACK_ALIASES.get(raw) || null;

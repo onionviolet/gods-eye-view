@@ -654,10 +654,19 @@ test('the voice TOOL SCHEMA is byte-identical to main — the mission mapping is
   const end = src.indexOf('\n];\n', start);
   const block = src.slice(start, end + 4);
 
-  assert.equal(block.length, 31104, 'tool schema byte length drifted from the frozen baseline');
+  // MERGE NOTE (ours): baseline re-frozen once, deliberately. The guard's own
+  // concern — that first-run missions ride EXISTING tools rather than growing
+  // the schema — is unchanged and still enforced; what moved is the schema
+  // itself, for an unrelated fork reason: `set_map_stack` shipped an enum of
+  // four while this fork ships six stacks (ce730b1), leaving `opentopo` and
+  // `osm-humanitarian` selectable in the UI and unaddressable by voice. That
+  // is a real cache bust on the realtime session, accepted knowingly to make
+  // the stacks reachable. Any FURTHER drift still fails here, which is the
+  // point: re-freeze deliberately, never to make a red test green.
+  assert.equal(block.length, 31199, 'tool schema byte length drifted from the frozen baseline');
   assert.equal(
     crypto.createHash('sha256').update(block).digest('hex'),
-    '3ace199727934e851902e4899c423d549d34d3f53469dcb56f07fc070d3f9d66',
+    'f707b660aa93a536ef13a7b46829a6f21c1e7878851acb2f96de48efc6a3db86',
     'the first-run missions must ride EXISTING tools: no schema edit, no cache bust',
   );
 

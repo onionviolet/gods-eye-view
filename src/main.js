@@ -220,6 +220,12 @@ async function init() {
     //   Google key   -> photoreal direct, ion retry if Map Tiles is blocked
     //   ion token    -> photoreal through ion, which resells the same mesh
     //   neither      -> keyless globe stacks, no crash and no tileset fetch
+    //
+    // Upstream PRs #123 and #109 independently rebuild parts of this. Neither
+    // is merged here because both are subsets: #123 is the ion retry alone,
+    // #109 is the three regimes without the route modelling or the retry's
+    // geocoding carve-out. If either lands upstream, this block supersedes it
+    // — do not resolve the rebase toward theirs.
     if (!canLoadPhotorealistic(mapRoute)) {
       loaderStatus.textContent = 'No map credentials — using keyless globe imagery...';
       viewer.scene.globe.show = true;

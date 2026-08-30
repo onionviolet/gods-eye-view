@@ -109,6 +109,13 @@ export function missingCredentialsError() {
  * far as the globe is concerned. Observed in the field with a key that
  * geocoded perfectly while every tile request 403'd.
  *
+ * A second, unrelated trigger reaches the same code path: Google refuses Map
+ * Tiles outright to EEA-billed projects
+ * (developers.google.com/maps/comms/eea/map-tiles), so an otherwise perfect key
+ * fails for a whole billing region. Cesium ion resells the same mesh under
+ * Cesium's own agreement (public asset 2275207), which is why the retry works
+ * at all.
+ *
  * Without this the app drops to the plain Cesium globe even when a working ion
  * token is sitting right there, so adding a Google key could make the globe
  * WORSE than having none at all.

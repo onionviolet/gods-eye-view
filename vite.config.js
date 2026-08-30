@@ -6149,8 +6149,8 @@ const GEV_REALTIME_TOOLS = [
       properties: {
         stack: {
           type: 'string',
-          enum: ['photoreal', 'bing-aerial', 'bing-labels', 'osm'],
-          description: 'photoreal = Google 3D. Use bing-aerial only when the user explicitly says "Bing aerial" — "satellite(s)" never means a basemap.',
+          enum: ['photoreal', 'bing-aerial', 'bing-labels', 'osm', 'opentopo', 'osm-humanitarian'],
+          description: 'photoreal = Google 3D. opentopo = topographic contours, osm-humanitarian = HOT style. Use bing-aerial only when the user explicitly says "Bing aerial" — "satellite(s)" never means a basemap.',
         },
       },
       required: ['stack'],
