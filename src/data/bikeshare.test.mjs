@@ -7,6 +7,8 @@ import {
   _selectBikeshareStationForTest,
   _setBikeshareSelectionStateForTest,
   createBikeshareSelectedOverlayEntry,
+  gbfsLocalizedText,
+  gbfsStationName,
 } from './bikeshare.js';
 
 function makeRecord() {
@@ -76,4 +78,53 @@ test('real station select/clear path publishes one card and creates no native la
   } finally {
     _clearBikeshareSelectionForTest();
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// GBFS v3 localized names (upstream PR #61, reworked)
+// ---------------------------------------------------------------------------
+
+test('gbfsLocalizedText reads both the v2 string and the v3 localized array', () => {
+  assert.equal(gbfsLocalizedText('Union Square'), 'Union Square');
+  assert.equal(gbfsLocalizedText([{ text: 'Union Square', language: 'en' }]), 'Union Square');
+});
+
+test('English is preferred, and a regional English tag still counts', () => {
+  const value = [
+    { text: 'Gare du Nord', language: 'fr' },
+    { text: 'North Station', language: 'en-GB' },
+  ];
+  assert.equal(gbfsLocalizedText(value), 'North Station');
+});
+
+test('with no English entry the first usable name wins — an operator-language name beats none', () => {
+  assert.equal(gbfsLocalizedText([{ text: 'Gare du Nord', language: 'fr' }]), 'Gare du Nord');
+  assert.equal(gbfsLocalizedText([{ text: '', language: 'fr' }, { text: 'Sceaux', language: 'fr' }]), 'Sceaux');
+});
+
+test('a malformed or absent name yields empty string rather than throwing', () => {
+  // The shipped implementation called .find() on the raw field and .toLowerCase()
+  // on entry.language, so a station missing `name` — or any v3 entry omitting
+  // `language` — threw a TypeError and took down the whole feed parse.
+  for (const value of [undefined, null, 42, {}, [], [{}], [{ text: 'X' }], [{ language: 'en' }]]) {
+    assert.doesNotThrow(() => gbfsLocalizedText(value), String(value));
+  }
+  assert.equal(gbfsLocalizedText(undefined), '');
+  assert.equal(gbfsLocalizedText([{}]), '');
+  assert.equal(gbfsLocalizedText([{ text: 'X' }]), 'X');
+});
+
+test('gbfsStationName falls back to short_name in either shape', () => {
+  assert.equal(gbfsStationName({ short_name: 'A1' }), 'A1');
+  assert.equal(gbfsStationName({ name: [], short_name: [{ text: 'A1', language: 'en' }] }), 'A1');
+  assert.equal(gbfsStationName({ name: 'Main', short_name: 'A1' }), 'Main');
+  assert.equal(gbfsStationName({}), '');
+});
+
+test('shape dispatch does not depend on the declared feed version', () => {
+  // A v3 feed that omits `version`, or a v2 feed that mislabels itself, both
+  // parse correctly: the value in hand cannot lie about what shape it is.
+  assert.equal(gbfsStationName({ name: [{ text: 'Bercy', language: 'fr' }] }), 'Bercy');
+  assert.equal(gbfsStationName({ name: 'Bercy' }), 'Bercy');
 });

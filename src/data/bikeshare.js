@@ -708,6 +708,39 @@ function extractStationsArray(payload) {
  * @param {Object} payload - Parsed station_information.json response.
  * @returns {Map<string, Object>} Map of stationId to station info objects.
  */
+/**
+ * Read a GBFS name field, which changed shape in v3.
+ *
+ * v2.x carries a plain string; v3 replaced it with an array of
+ * `{text, language}` localized strings. Dispatching on the FIELD's shape
+ * rather than on `payload.version` is deliberate: the version is advisory
+ * metadata a feed can omit or get wrong, while the value in hand cannot lie
+ * about what it is. It also means one mislabeled feed does not take out the
+ * station name for a whole system.
+ *
+ * English is preferred when offered, otherwise the first entry — a name in
+ * the operator's own language beats no name at all.
+ *
+ * @param {unknown} value Either a string (v2.x) or a localized-string array (v3).
+ * @returns {string} The best available name, or '' when there is none.
+ */
+function gbfsLocalizedText(value) {
+  if (typeof value === 'string') return value.trim();
+  if (!Array.isArray(value)) return '';
+  const english = value.find((entry) => String(entry?.language || '').toLowerCase().startsWith('en'));
+  const chosen = english || value.find((entry) => String(entry?.text || '').trim());
+  return String(chosen?.text || '').trim();
+}
+
+/**
+ * A station's display name, falling back to its short name.
+ * @param {object} raw One `station_information` entry.
+ * @returns {string} Display name, or '' when the feed supplies neither.
+ */
+function gbfsStationName(raw) {
+  return gbfsLocalizedText(raw?.name) || gbfsLocalizedText(raw?.short_name);
+}
+
 function parseStationInformation(payload) {
   const stations = extractStationsArray(payload);
   const stationMap = new Map();
@@ -719,18 +752,7 @@ function parseStationInformation(payload) {
     const lon = Number(raw?.lon ?? raw?.longitude);
     if (!stationId || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-    let name;
-    if (payload?.version >= 3) {
-      const handleLocalizedString = (array, locale) => {
-        return array.find(localizedString => 
-          localizedString.language.toLowerCase() === "en") || array[0];
-      };
-      name = String(
-        handleLocalizedString(raw?.name).text || 
-        handleLocalizedString(raw?.short_name).text || '').trim();
-    } else {
-      name = String(raw?.name || raw?.short_name || '').trim();
-    }
+    const name = gbfsStationName(raw);
 
     stationMap.set(stationId, {
       stationId,
@@ -1002,6 +1024,8 @@ function buildSelectionLabel(record) {
  * @param {Object} record Bikeshare render record.
  * @returns {Object|null}
  */
+export { gbfsLocalizedText, gbfsStationName };
+
 export function createBikeshareSelectedOverlayEntry(key, record) {
   const position = record?.point?.position;
   if (!key || !position) return null;
