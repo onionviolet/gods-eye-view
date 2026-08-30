@@ -72,6 +72,28 @@ function describeError(error) {
 }
 
 /**
+ * Append a `<link>` resource hint to `<head>`, once per href.
+ *
+ * Added at runtime rather than in static markup so a hint is only ever issued
+ * once the credential that makes the host reachable is known to exist. A
+ * keyless deployment — the third credential regime, and the common one — never
+ * contacts ion or Google at all, so a static hint there would burn a
+ * connection slot warming a host the session will never call.
+ *
+ * @param {'preconnect'|'dns-prefetch'} rel Hint strength.
+ * @param {string} href Origin to warm.
+ * @returns {void}
+ */
+function addResourceHint(rel, href) {
+  if (document.head.querySelector(`link[rel="${rel}"][href="${href}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = rel;
+  link.href = href;
+  if (rel === 'preconnect') link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
+}
+
+/**
  * GOD'S EYE VIEW — Main Entry Point
  * Initializes CesiumJS with Google Photorealistic 3D Tiles,
  * style system, intelligence HUD, location presets, and share links.
@@ -87,6 +109,13 @@ async function init() {
     const cesiumToken = import.meta.env.CESIUM_ION_TOKEN;
     if (cesiumToken) {
       Cesium.Ion.defaultAccessToken = cesiumToken;
+      // With a token configured, ion is contacted on every session — World
+      // Terrain via MapStackController._setWorldTerrainEnabled, and the
+      // photoreal mesh itself on the ion route — regardless of which imagery
+      // stack is active. Warm it now instead of paying DNS/TLS serially on the
+      // first tile request.
+      addResourceHint('preconnect', 'https://api.cesium.com');
+      addResourceHint('preconnect', 'https://assets.ion.cesium.com');
     }
 
     // Photorealistic 3D Tiles: direct with a Google key, otherwise through
@@ -113,6 +142,11 @@ async function init() {
     if (mapRoute.googleApiKey) {
       Cesium.GoogleMaps.defaultApiKey = mapRoute.googleApiKey;
       window.__GOOGLE_MAPS_API_KEY__ = mapRoute.googleApiKey;
+      // Geocoding (voice + search) hits this host directly from the browser,
+      // but only on demand — a dns-prefetch is enough. Gated on the route's
+      // key, not the raw env var: the ion route deliberately leaves the key
+      // unset and geocodes through Nominatim instead.
+      addResourceHint('dns-prefetch', 'https://maps.googleapis.com');
     }
 
     // Create the Cesium viewer with minimal chrome
