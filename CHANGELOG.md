@@ -95,6 +95,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   the two largest sources and dropped them entirely — leaving roughly a third of
   global detections while reporting each dropped source twice, once as
   successful with its real count and once as failed.
+- Windows laptop touchpads can pinch-zoom and two-finger-scroll the globe.
+  Precision Touchpad pinch arrives as Ctrl+wheel, which Cesium recorded but
+  never bound to zoom; two-finger motion no longer tilts on a fine pointer.
+  Pinch and two-finger zoom now share a 0.002 height scale (~2.5× Cesium
+  wheel) so the gestures feel snappier. Click-drag orbit and Ctrl+drag tilt
+  are unchanged.
 - A missing optional FIRMS key no longer turns the complete Environmental
   mission into `LOAD FAILED`. The FIRMS row still reports `KEY REQUIRED`, while
   earthquakes continue to load. Real lifecycle and fetch failures retain
