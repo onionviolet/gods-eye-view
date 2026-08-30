@@ -372,3 +372,25 @@ test('the HUD falls back to the agent model for a provider with no default', () 
 test('resolveHudModel is total for a missing provider', () => {
   assert.equal(resolveHudModel(null, { GEV_HUD_MODEL: 'x' }), null);
 });
+
+test('every provider, OpenAI included, honours a base-URL override', () => {
+  // OpenAI was the only entry pinned to its own host, which is why upstream
+  // #125 proposed a whole vendor-specific route to reach a gateway. One
+  // baseUrlEnv reaches every OpenAI-compatible gateway instead, and keeps the
+  // registry the single place a provider is described.
+  for (const provider of Object.values(AGENT_PROVIDERS)) {
+    assert.ok(provider.baseUrlEnv, `${provider.id} must expose a base-URL override`);
+    assert.equal(
+      providerBaseUrl(provider, { [provider.baseUrlEnv]: 'https://gateway.example/v1/' }),
+      'https://gateway.example/v1',
+      provider.id,
+    );
+    assert.equal(providerBaseUrl(provider, {}), provider.defaultBaseUrl.replace(/\/+$/, ''), provider.id);
+  }
+});
+
+test('a blank or whitespace override falls back to the provider default', () => {
+  const openai = AGENT_PROVIDERS.openai;
+  assert.equal(providerBaseUrl(openai, { OPENAI_BASE_URL: '   ' }), 'https://api.openai.com/v1');
+  assert.equal(providerBaseUrl(openai, { OPENAI_BASE_URL: '' }), 'https://api.openai.com/v1');
+});

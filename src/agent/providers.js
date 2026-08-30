@@ -39,7 +39,13 @@ export const AGENT_PROVIDERS = Object.freeze({
     label: 'OpenAI',
     kind: 'hosted',
     defaultBaseUrl: 'https://api.openai.com/v1',
-    baseUrlEnv: null,
+    // OpenAI was the one provider pinned to its own host. Giving it the same
+    // override the others already have is what makes any OpenAI-compatible
+    // gateway — a router, a proxy, a self-hosted shim — reachable without
+    // adding a vendor to this registry (see the note on upstream PR #125 in
+    // docs/FORK-NOTES.md). Realtime voice is deliberately unaffected: it
+    // negotiates WebRTC against api.openai.com directly, not through here.
+    baseUrlEnv: 'OPENAI_BASE_URL',
     apiKeyEnv: 'OPENAI_API_KEY',
     modelsPath: '/models',
     defaultModel: 'gpt-5-mini',
