@@ -240,3 +240,19 @@ loop when `document.hidden` is true, which is correct behavior and also means a
 backgrounded or headless tab never advances `scene.frameState.frameNumber` past
 0. The globe then requests no imagery tiles at all, which reads exactly like a
 broken imagery layer and is not one. Check the globe in a focused window.
+
+The Browser pane reports `document.hidden === true` **even when fronted**, and
+the freeze is wider than the globe: the Data Layers panel stops syncing too, so
+a row shows `OFF` while `dataManager.isEnabled(id)` returns `true`. Confirmed
+against `earthquakes` on 2026-08-30 — if a new layer's toggle looks stuck,
+check an old layer before believing it.
+
+What does work there, and what was used to accept the overlays: call
+`viewer.scene.render()` in a loop by hand. That advances `frameNumber` and
+issues genuine tile requests, and
+`performance.getEntriesByType('resource')` then gives the URLs **and
+`responseStatus`** — which is the only way to tell a drawing layer from a
+silently-404ing one, since Cesium raises on neither. Both overlay hosts returned
+200 at `z=1`. `transferSize: 0` on those entries is opaque cross-origin timing,
+not an empty response. Keep each render loop under ~60 iterations per
+`javascript_tool` call or it times out.

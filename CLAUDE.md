@@ -69,7 +69,16 @@ fetches **registered** URLs only, never client-supplied ones.
 - **A hidden browser verifies nothing that renders.** GEV pauses its render
   loop when `document.hidden`, so a backgrounded or headless tab never advances
   `frameNumber` past 0 and requests no tiles. That reads exactly like a broken
-  imagery layer and is not one. Check in a focused window.
+  imagery layer and is not one. Check in a focused window. **The Browser pane
+  reports `document.hidden === true` even when fronted**, so this is its normal
+  state, not a glitch. It also stops the Data Layers panel from syncing: a row
+  reads `OFF` while `dataManager.isEnabled(id)` is `true`. Verified 2026-08-30
+  on `earthquakes` as well as a new layer, so treat a stale toggle there as the
+  environment, not a bug. To verify anyway, drive the scene by hand —
+  `viewer.scene.render()` in a loop advances `frameNumber` and issues real tile
+  requests — then read `performance.getEntriesByType('resource')` for the
+  status codes. Keep the loop under ~60 iterations per call or the tool times
+  out.
 - **Silence is a failure mode here.** Cesium renders an empty imagery layer
   rather than raising on 404ing tiles. A passing suite does not prove a layer
   draws; unit-test the URL builder and look at the globe.
