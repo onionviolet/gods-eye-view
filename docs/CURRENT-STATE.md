@@ -11,7 +11,8 @@ Updated: August 30, 2026
 > the row on with neither chosen would draw nothing and read as broken. They are
 > invisible — not broken — on the default `photoreal` stack, which renders with
 > `globe.show = false`; `getStats().error` says so in plain language rather than
-> leaving the operator to guess. Registry is now 18 layers.
+> leaving the operator to guess. Registry is now 20 layers, with Rayhunter and
+> Ocean Conditions added in the same round.
 >
 > **Arrival ground guard** (`src/cameraGroundGuard.js`). Arrival framing is
 > computed before the destination's tiles exist, so every ground-height guess
@@ -2108,7 +2109,7 @@ silently demoting every later lookup for the session.
   with compact fields for enabled layers, allowlisted layer options, panel state,
   and the active preset's allowlisted shader controls. An absent layer field uses
   deterministic defaults; an explicit empty field means no enabled layers.
-- The registry seals only after all 18 production layers register, and every
+- The registry seals only after all 20 production layers register, and every
   layer has an explicit serialization disposition. Unknown enabled-layer tokens
   reject the layer payload; unknown option tokens are ignored. Restoration
   settles independently per layer so one failed or unavailable source cannot

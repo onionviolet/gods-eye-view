@@ -42,6 +42,71 @@ Upstream pull requests, none of them merged upstream at the time of writing:
 | [#89](https://github.com/bilawalsidhu/gods-eye-view/pull/89) | RainViewer weather radar, re-landed with the PoC's four blocking bugs fixed |
 | [#118](https://github.com/bilawalsidhu/gods-eye-view/pull/118) | Post-arrival camera ground guard — never frame an arrival buried in terrain |
 | [#114](https://github.com/bilawalsidhu/gods-eye-view/pull/114) | OpenSeaMap / OpenSnowMap raster overlays (upstream issue #10) |
+| [#116](https://github.com/bilawalsidhu/gods-eye-view/pull/116) | Rayhunter cell-site-simulator tap layer — merged with its SSRF guard rewritten |
+| [#100](https://github.com/bilawalsidhu/gods-eye-view/pull/100) | Ocean Conditions (NDBC buoys) + person-overboard drift Monte Carlo |
+| [#115](https://github.com/bilawalsidhu/gods-eye-view/pull/115) | Opt-in toggle routing Radio audio into the voice model |
+| [#110](https://github.com/bilawalsidhu/gods-eye-view/pull/110) | Server-only Places / Street View key, split from the browser key |
+| [#105](https://github.com/bilawalsidhu/gods-eye-view/pull/105) / [#106](https://github.com/bilawalsidhu/gods-eye-view/pull/106) | OSM webcam CCTV pack — merged with a resolved-host guard added — and the Warendorf pack |
+| [#107](https://github.com/bilawalsidhu/gods-eye-view/pull/107) / [#102](https://github.com/bilawalsidhu/gods-eye-view/pull/102) | Installations: OSM provenance, viewport roster, bounds-midpoint fallback |
+| [#104](https://github.com/bilawalsidhu/gods-eye-view/pull/104) | `OVERPASS_EXTRA_UPSTREAMS` for operator-supplied mirrors |
+| [#73](https://github.com/bilawalsidhu/gods-eye-view/pull/73) | FIRMS IPv4 retry — merged, then narrowed to genuine connect failures |
+| [#72](https://github.com/bilawalsidhu/gods-eye-view/pull/72) / [#79](https://github.com/bilawalsidhu/gods-eye-view/pull/79) / [#78](https://github.com/bilawalsidhu/gods-eye-view/pull/78) / [#62](https://github.com/bilawalsidhu/gods-eye-view/pull/62) | Render perf, mobile profile, boot diagnostics, touchpad pinch-zoom |
+| [#119](https://github.com/bilawalsidhu/gods-eye-view/pull/119) / [#122](https://github.com/bilawalsidhu/gods-eye-view/pull/122) / [#111](https://github.com/bilawalsidhu/gods-eye-view/pull/111) / [#103](https://github.com/bilawalsidhu/gods-eye-view/pull/103) / [#98](https://github.com/bilawalsidhu/gods-eye-view/pull/98) / [#117](https://github.com/bilawalsidhu/gods-eye-view/pull/117) | Audit fixes, CRLF fixture portability, tooltips, QA polling, Nix shell, docs |
+| [#61](https://github.com/bilawalsidhu/gods-eye-view/pull/61) | GBFS v3 station names — merged, then reworked to dispatch on shape |
+
+### Absorbed but rewritten, and why
+
+Four PRs were taken for their intent and changed on the way in. Each is worth
+knowing about before a rebase re-opens the same question.
+
+- **#116's Rayhunter proxy** shipped a blocklist of one literal string,
+  `169.254.169.254`. `2852039166` and `0251.0376.0251.0376` are the same
+  address, both satisfy its `host:port` pattern, and `metadata.google.internal`
+  simply resolves to it. Replaced with an allowlist by address class:
+  `isLanDeviceAddress` resolves the host and requires **every** answer to be
+  private, loopback, or CGNAT. Link-local is refused wholesale, so the metadata
+  address needs no special case.
+- **#105's OSM webcam pack** filters the URL string, but `contact:webcam` is a
+  world-editable OSM tag and a string cannot say where a name points. The pack
+  is also ON by default (`CCTV_OSM_ENABLED ?? '1'`), which its own `.env`
+  comment implied it was not. `filterOsmWebcamsToPublicHosts` now resolves each
+  host on the refresh path and requires every answer to be public.
+- **#73's FIRMS retry** fired on any `fetch` rejection, so an abort or a dead
+  host paid the timeout twice and reported the second, less useful failure.
+  `isConnectFailure` gates it, unwrapping the AggregateError that Happy Eyeballs
+  reports the A/AAAA race through — the code sits on the inner errors, so a
+  plain `err.code` check sees nothing.
+- **#61's GBFS v3 names** called `.find()` on a possibly-absent field and
+  `.toLowerCase()` on a possibly-absent `language`, so one malformed station
+  threw and took down the parse for a whole system. Now dispatches on the
+  field's shape rather than the feed's declared version, which fixes the crash
+  and the mislabeled-feed case together.
+
+### Refused, with reasons
+
+- [#126](https://github.com/bilawalsidhu/gods-eye-view/pull/126) FIRMS IPv4:
+  calls `setDefaultAutoSelectFamily(false)`, disabling Happy Eyeballs for the
+  whole dev-server process — every other proxy included — as a side effect of
+  constructing one plugin. #73's per-request retry stays scoped to the source
+  that has the problem.
+- [#125](https://github.com/bilawalsidhu/gods-eye-view/pull/125) OrcaRouter:
+  adds a vendor route, limiter, model default, and a browser-exposed
+  `VITE_HUD_SUMMARY_URL`. The registry from #51 already gives every provider a
+  `baseUrlEnv`; OpenAI was simply missing one. Filling that in reaches
+  OrcaRouter and every other OpenAI-compatible gateway with no vendor in the
+  tree.
+- [#94](https://github.com/bilawalsidhu/gods-eye-view/pull/94) Docker: this
+  fork's own `Dockerfile` already exists and is strictly better — it documents
+  why the image must run `vite`, not a production build, since ten of the
+  nineteen proxies register only on `configureServer`.
+- [#127](https://github.com/bilawalsidhu/gods-eye-view/pull/127) Deno CI:
+  GitHub's stock Deno starter workflow, unmodified, in a Node/Vite repo whose
+  `engines` pin Node and whose tests run through `scripts/run-unit-tests.mjs`.
+- [#123](https://github.com/bilawalsidhu/gods-eye-view/pull/123) and
+  [#109](https://github.com/bilawalsidhu/gods-eye-view/pull/109): subsets of the
+  credential handling here — see the section above.
+- Duplicates of work already landed: #113 (RainViewer, we have #89), #112
+  (`node:fs`, we have #83), #121/#108/#81 (CRLF, we have #122).
 
 ## Merge decisions worth knowing
 
@@ -198,7 +263,12 @@ than force-resolved: [#53](https://github.com/bilawalsidhu/gods-eye-view/pull/53
    capability negotiation, the mobile renderer fallback, and the canonical
    global camera home.
 
-4. **Not yet assessed, from the 2026-08-30 sweep** (upstream reached #127; none
+4. **Assessed and closed out on 2026-08-30.** The sweep's queue is now empty:
+   every open upstream PR is merged, rewritten on the way in, or refused with a
+   reason, all recorded above. What remains open upstream and unaddressed here
+   is only what appeared after this sweep.
+
+   Previously listed as unassessed (upstream reached #127; none
    merged upstream):
    [#116](https://github.com/bilawalsidhu/gods-eye-view/pull/116) Rayhunter
    cell-site-simulator tap layer,
@@ -227,10 +297,10 @@ gh api repos/bilawalsidhu/gods-eye-view/compare/main...OWNER:REPO:main
 
 ## Verifying a change
 
-`npm test` is the gate. The suite stands at **2,833 passing, 0 failing** on
-`dev`, against 2,587 on upstream `main`; PR #51 brings 218 of the difference,
-the weather-radar work adds six, PR #118 six more, and PR #114 plus the map-stack
-reachability work the rest.
+`npm test` is the gate. The suite stands at **2,970 passing, 0 failing** on
+`dev`, against 2,587 on upstream `main`. PR #51 brings 218 of that difference;
+the rest accumulates from every absorbed PR and from the tests this fork adds
+when it reworks one.
 
 Two allocation microbenchmarks skip on Node 26 because their budgets are
 calibrated for Node 24. That is expected, not a failure.

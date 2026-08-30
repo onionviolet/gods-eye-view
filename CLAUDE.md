@@ -22,7 +22,7 @@ Read before changing runtime behavior:
 ## Commands
 
 ```bash
-npm test                 # unit gate — 2,819 passing, 0 failing on dev
+npm test                 # unit gate — 2,970 passing, 0 failing on dev
 npm run build            # must stay green
 npm run test:track       # tracking invariants; needs the dev server up
 node scripts/qa-*.mjs    # headless puppeteer harnesses, one per feature area
